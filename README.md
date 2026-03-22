@@ -10,7 +10,7 @@
 
 社区已有 [claude-code-wechat-channel](https://github.com/Johnixr/claude-code-wechat-channel)，基于 MCP Channel 实验性协议。本项目采用完全不同的技术路线，体验差异如下：
 
-| 对比项 | wechat-for-claude-code（本项目） | claude-code-wechat-channel |
+| 对比 | wechat-for-claude-code（本项目） | claude-code-wechat-channel |
 |--------|------|------|
 | **技术方案** | `claude -p` CLI pipe 模式（稳定） | MCP Channel 协议（实验性，需 `--dangerously-load-development-channels`） |
 | **上下文记忆** | 有，per-user `--resume` 持久化，重启不丢 | 无，关终端即丢失全部上下文 |
