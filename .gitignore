@@ -1,3 +1,5 @@
 node_modules/
 .claude/
 .cursor/
+bridge.log
+bridge-*.log
