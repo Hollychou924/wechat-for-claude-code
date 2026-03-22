@@ -6,37 +6,6 @@
 
 **支持 macOS / Windows / Linux。**
 
-## 与同类项目的对比
-
-社区已有 [claude-code-wechat-channel](https://github.com/Johnixr/claude-code-wechat-channel)，基于 MCP Channel 实验性协议。
-
-本项目采用完全不同的技术路线，体验差异如下：
-
-| 对比 | wechat-for-claude-code（本项目） | claude-code-wechat-channel |
-|--------|------|------|
-| **技术方案** | `claude -p` CLI pipe 模式（稳定） | MCP Channel 协议（实验性，需 `--dangerously-load-development-channels`） |
-| **上下文记忆** | 有，per-user `--resume` 持久化，重启不丢 | 无，关终端即丢失全部上下文 |
-| **后台常驻** | 开机自启，关终端不影响 | 必须保持终端窗口打开 |
-| **跨平台服务** | macOS launchd / Linux systemd / Windows Task Scheduler | 无 |
-| **打字气泡** | 持续循环 sendTyping 直到回复完成 | 无 |
-| **Markdown 处理** | 自动转纯文本（代码块、表格、链接、删除线等） | 靠 prompt 提示 Claude "别用 markdown"（不可靠） |
-| **长文本分段** | 智能分段（按段落/换行/空格断句，4000 字限制） | 无，超长会被微信截断 |
-| **消息去重** | 11 分钟去重窗口 | 无 |
-| **频率限制** | 可配置（默认 3 秒/用户） | 无 |
-| **多用户并发** | per-user 队列，同用户按序，不同用户并发 | 无 |
-| **微信端命令** | `新对话` 重置 / `帮助` 查看命令 | 无 |
-| **媒体提示** | 收到图片/文件/视频友好提示 | 静默忽略 |
-| **QR 码过期** | 自动刷新（最多 3 次） | 过期需重启 |
-| **日志系统** | 时间戳 + 按天轮转 + 7 天自动清理 | 仅 stderr，无持久化 |
-| **token 过期检测** | 连续过期明确提示重新登录 | 无 |
-| **环境检测** | 启动时检测 claude CLI 并给安装指引 | 无 |
-| **安装步骤** | `bun setup.ts` 一步搞定 | 三步：setup → install → 手动带 flag 启动 |
-| **外部依赖** | 1 个（qrcode-terminal） | 2 个（+@modelcontextprotocol/sdk） |
-
-**核心差异**：本项目使用稳定的 `claude -p` pipe 模式直接调用本地 Claude Code，不依赖实验性 MCP Channel 协议。这意味着：
-- 不需要 `--dangerously-load-development-channels` 标志
-- 不受 Claude Code Channel 功能迭代影响
-- 后台常驻，真正做到"装完就忘"
 
 ## 它能做什么
 
@@ -72,6 +41,41 @@
 5. 每个用户的对话上下文通过 `--resume` 持久化，重启也不丢
 
 **不依赖任何第三方 AI 服务或框架**，直接调用你本地已安装的 Claude Code。
+
+
+## 与同类项目的对比
+
+社区已有 [claude-code-wechat-channel](https://github.com/Johnixr/claude-code-wechat-channel)，基于 MCP Channel 实验性协议。
+
+本项目采用完全不同的技术路线，体验差异如下：
+
+| 对比 | wechat-for-claude-code（本项目） | claude-code-wechat-channel |
+|--------|------|------|
+| **技术方案** | `claude -p` CLI pipe 模式（稳定） | MCP Channel 协议（实验性，需 `--dangerously-load-development-channels`） |
+| **上下文记忆** | 有，per-user `--resume` 持久化，重启不丢 | 无，关终端即丢失全部上下文 |
+| **后台常驻** | 开机自启，关终端不影响 | 必须保持终端窗口打开 |
+| **跨平台服务** | macOS launchd / Linux systemd / Windows Task Scheduler | 无 |
+| **打字气泡** | 持续循环 sendTyping 直到回复完成 | 无 |
+| **Markdown 处理** | 自动转纯文本（代码块、表格、链接、删除线等） | 靠 prompt 提示 Claude "别用 markdown"（不可靠） |
+| **长文本分段** | 智能分段（按段落/换行/空格断句，4000 字限制） | 无，超长会被微信截断 |
+| **消息去重** | 11 分钟去重窗口 | 无 |
+| **频率限制** | 可配置（默认 3 秒/用户） | 无 |
+| **多用户并发** | per-user 队列，同用户按序，不同用户并发 | 无 |
+| **微信端命令** | `新对话` 重置 / `帮助` 查看命令 | 无 |
+| **媒体提示** | 收到图片/文件/视频友好提示 | 静默忽略 |
+| **QR 码过期** | 自动刷新（最多 3 次） | 过期需重启 |
+| **日志系统** | 时间戳 + 按天轮转 + 7 天自动清理 | 仅 stderr，无持久化 |
+| **token 过期检测** | 连续过期明确提示重新登录 | 无 |
+| **环境检测** | 启动时检测 claude CLI 并给安装指引 | 无 |
+| **安装步骤** | `bun setup.ts` 一步搞定 | 三步：setup → install → 手动带 flag 启动 |
+| **外部依赖** | 1 个（qrcode-terminal） | 2 个（+@modelcontextprotocol/sdk） |
+
+**核心差异**：本项目使用稳定的 `claude -p` pipe 模式直接调用本地 Claude Code，不依赖实验性 MCP Channel 协议。这意味着：
+- 不需要 `--dangerously-load-development-channels` 标志
+- 不受 Claude Code Channel 功能迭代影响
+- 后台常驻，真正做到"装完就忘"
+
+
 
 ## 一键安装
 
