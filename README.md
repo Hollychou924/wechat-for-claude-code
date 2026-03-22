@@ -8,7 +8,9 @@
 
 ## 与同类项目的对比
 
-社区已有 [claude-code-wechat-channel](https://github.com/Johnixr/claude-code-wechat-channel)，基于 MCP Channel 实验性协议。本项目采用完全不同的技术路线，体验差异如下：
+社区已有 [claude-code-wechat-channel](https://github.com/Johnixr/claude-code-wechat-channel)，基于 MCP Channel 实验性协议。
+
+本项目采用完全不同的技术路线，体验差异如下：
 
 | 对比 | wechat-for-claude-code（本项目） | claude-code-wechat-channel |
 |--------|------|------|
