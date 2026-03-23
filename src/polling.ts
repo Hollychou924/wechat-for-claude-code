@@ -210,13 +210,13 @@ async function processMessage(
     // Build user-friendly error message
     let userMsg: string;
     if (errMsg.includes("not found") || errMsg.includes("ENOENT")) {
-      userMsg = "Claude Code 未安装或不在系统路径中，请检查服务端环境。";
+      userMsg = "电脑上的 Claude Code 没找到，可能还没安装或者环境变量没配好，检查一下哦~";
     } else if (errMsg.includes("响应超时")) {
-      userMsg = "Claude 处理超时了，可能是问题太复杂。请试试简化问题，或发「新对话」重置后重试。";
+      userMsg = "等了好久没收到 Claude 的回复，可能是电脑休眠了或者网络断了。确认电脑在开机联网状态，然后再试试~";
     } else if (errMsg.includes("退出码")) {
-      userMsg = "Claude 处理出错了，请发「新对话」重置后重试。";
+      userMsg = "Claude 处理时遇到了点问题，试试发「新对话」重置一下，然后重新提问~";
     } else {
-      userMsg = "抱歉，处理消息时出错了，请稍后再试。";
+      userMsg = "出了点小状况，可能是电脑休眠或网络波动。确认电脑在线后再试试~";
     }
 
     try {
