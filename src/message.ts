@@ -2,11 +2,19 @@ import type { WeixinMessage, MessageItem } from "./api.js";
 import { MessageType, MessageItemType, MessageState } from "./api.js";
 import { MAX_SEND_CHUNK } from "./config.js";
 
+export interface MediaInfo {
+  type: "image" | "file" | "video";
+  encryptQueryParam: string;
+  aesKey: string | null;
+  fileName?: string;
+}
+
 export interface ParsedMessage {
   senderId: string;
   text: string;
   contextToken: string | undefined;
   hasMedia: boolean;
+  mediaItems: MediaInfo[];
 }
 
 export function parseMessage(msg: WeixinMessage): ParsedMessage | null {
@@ -14,6 +22,7 @@ export function parseMessage(msg: WeixinMessage): ParsedMessage | null {
 
   const text = extractText(msg.item_list);
   const hasMedia = hasMediaItems(msg.item_list);
+  const mediaItems = extractMediaItems(msg.item_list);
 
   if (!text && !hasMedia) return null;
 
@@ -22,6 +31,7 @@ export function parseMessage(msg: WeixinMessage): ParsedMessage | null {
     text,
     contextToken: msg.context_token,
     hasMedia,
+    mediaItems,
   };
 }
 
@@ -55,6 +65,34 @@ function extractText(items?: MessageItem[]): string {
     }
   }
   return "";
+}
+
+function extractMediaItems(items?: MessageItem[]): MediaInfo[] {
+  if (!items?.length) return [];
+  const result: MediaInfo[] = [];
+  for (const item of items) {
+    if (item.type === MessageItemType.IMAGE && item.image_item?.media?.encrypt_query_param) {
+      const img = item.image_item;
+      const aesKey = img.aeskey
+        ? Buffer.from(img.aeskey, "hex").toString("base64")
+        : img.media!.aes_key ?? null;
+      result.push({ type: "image", encryptQueryParam: img.media!.encrypt_query_param!, aesKey });
+    } else if (item.type === MessageItemType.FILE && item.file_item?.media?.encrypt_query_param && item.file_item.media.aes_key) {
+      result.push({
+        type: "file",
+        encryptQueryParam: item.file_item.media.encrypt_query_param,
+        aesKey: item.file_item.media.aes_key,
+        fileName: item.file_item.file_name,
+      });
+    } else if (item.type === MessageItemType.VIDEO && item.video_item?.media?.encrypt_query_param) {
+      result.push({
+        type: "video",
+        encryptQueryParam: item.video_item.media.encrypt_query_param,
+        aesKey: item.video_item.media.aes_key ?? null,
+      });
+    }
+  }
+  return result;
 }
 
 /**

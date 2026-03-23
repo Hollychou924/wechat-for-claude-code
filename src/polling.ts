@@ -5,10 +5,14 @@ import {
   getConfig,
   TypingStatus,
 } from "./api.js";
+import fs from "node:fs";
+import path from "node:path";
 import type { AccountData } from "./storage.js";
 import { loadSyncBuffer, saveSyncBuffer, clearSessionId } from "./storage.js";
 import { parseMessage, markdownToPlainText, splitText } from "./message.js";
+import type { MediaInfo } from "./message.js";
 import { callClaude } from "./claude.js";
+import { downloadAndDecrypt, downloadPlain } from "./cdn.js";
 import { log, logError } from "./log.js";
 import {
   LONG_POLL_TIMEOUT_MS,
@@ -21,6 +25,8 @@ import {
   RATE_LIMIT_MS,
   TYPING_TICKET_TTL_MS,
   MAX_SESSION_EXPIRY_COUNT,
+  CDN_BASE_URL,
+  MEDIA_TEMP_DIR,
 } from "./config.js";
 
 // ── Dedup & Rate Limiting ───────────────────────────────────────────────────
@@ -105,6 +111,42 @@ function handleCommand(
   return { reply: "", handled: false };
 }
 
+// ── Media Download ──────────────────────────────────────────────────────────
+
+const MEDIA_EXT: Record<string, string> = { image: ".png", file: "", video: ".mp4" };
+
+async function downloadMedia(items: MediaInfo[]): Promise<{ paths: string[]; errors: string[] }> {
+  fs.mkdirSync(MEDIA_TEMP_DIR, { recursive: true });
+  const paths: string[] = [];
+  const errors: string[] = [];
+
+  for (const item of items) {
+    if (item.type === "video") {
+      errors.push("视频");
+      continue;
+    }
+    try {
+      const ext = item.fileName
+        ? path.extname(item.fileName) || MEDIA_EXT[item.type]
+        : MEDIA_EXT[item.type];
+      const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
+      const filePath = path.join(MEDIA_TEMP_DIR, fileName);
+
+      const buf = item.aesKey
+        ? await downloadAndDecrypt(item.encryptQueryParam, item.aesKey, CDN_BASE_URL)
+        : await downloadPlain(item.encryptQueryParam, CDN_BASE_URL);
+
+      fs.writeFileSync(filePath, buf);
+      log(`媒体已保存: ${filePath} (${buf.length} 字节)`);
+      paths.push(filePath);
+    } catch (err) {
+      logError(`媒体下载失败: ${String(err)}`);
+      errors.push(item.type === "image" ? "图片" : "文件");
+    }
+  }
+  return { paths, errors };
+}
+
 // ── Send Reply (with chunking + markdown strip) ─────────────────────────────
 
 async function sendReply(
@@ -145,18 +187,50 @@ async function processMessage(
   senderId: string,
   text: string,
   hasMedia: boolean,
+  mediaItems: MediaInfo[],
   contextToken: string,
 ): Promise<void> {
-  // Handle unsupported media
-  if (hasMedia && !text) {
-    await sendTextMessage(baseUrl, token, senderId, "暂不支持图片、文件和视频消息，请发送文字。", contextToken);
+  // Download media if present
+  const downloadableMedia = mediaItems.filter((m) => m.type !== "video");
+  const hasOnlyVideo = hasMedia && downloadableMedia.length === 0 && mediaItems.some((m) => m.type === "video");
+
+  if (hasOnlyVideo && !text) {
+    await sendTextMessage(baseUrl, token, senderId, "暂不支持视频消息，请发送图片、文件或文字~", contextToken);
     return;
   }
 
-  // Text + media: process text but notify about media
-  if (hasMedia && text) {
-    log("消息含媒体附件，仅处理文字部分");
+  let mediaPaths: string[] = [];
+  if (downloadableMedia.length > 0) {
+    const { paths, errors } = await downloadMedia(downloadableMedia);
+    mediaPaths = paths;
+    if (paths.length === 0 && !text) {
+      await sendTextMessage(baseUrl, token, senderId, "媒体文件下载失败了，请重新发送试试~", contextToken);
+      return;
+    }
+    if (errors.length > 0 && paths.length > 0) {
+      log(`部分媒体下载失败: ${errors.join(", ")}`);
+    }
   }
+
+  // Build enhanced prompt with media file paths
+  let claudeInput = text;
+  if (mediaPaths.length > 0) {
+    const mediaRefs = mediaPaths.map((p) => {
+      const ext = path.extname(p).toLowerCase();
+      const isImage = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"].includes(ext);
+      return isImage
+        ? `[用户发送的图片: ${p}]`
+        : `[用户发送的文件: ${p}]`;
+    }).join("\n");
+
+    if (text) {
+      claudeInput = `${mediaRefs}\n\n用户的文字消息: ${text}`;
+    } else {
+      claudeInput = `${mediaRefs}\n\n请查看上述文件并回复用户。`;
+    }
+  }
+
+  if (!claudeInput) return;
 
   // Handle built-in commands
   const cmd = handleCommand(text, senderId);
@@ -193,7 +267,7 @@ async function processMessage(
   // Call Claude
   try {
     log("调用 claude ...");
-    const reply = await callClaude(text, senderId);
+    const reply = await callClaude(claudeInput, senderId);
     log(`Claude 响应: "${reply.slice(0, 100)}"`);
 
     await stopTyping();
@@ -222,6 +296,11 @@ async function processMessage(
     try {
       await sendTextMessage(baseUrl, token, senderId, userMsg, contextToken);
     } catch { /* best effort */ }
+  } finally {
+    // Clean up temp media files
+    for (const p of mediaPaths) {
+      try { fs.unlinkSync(p); } catch { /* ignore */ }
+    }
   }
 }
 
@@ -318,7 +397,7 @@ export async function startPolling(
 
         // Queue per user: same user's messages run in order, different users run concurrently
         enqueueForUser(parsed.senderId, () =>
-          processMessage(baseUrl, token, parsed.senderId, parsed.text, parsed.hasMedia, contextToken)
+          processMessage(baseUrl, token, parsed.senderId, parsed.text, parsed.hasMedia, parsed.mediaItems, contextToken)
             .catch((err) => logError(`消息处理异常: ${String(err)}`)),
         );
       }

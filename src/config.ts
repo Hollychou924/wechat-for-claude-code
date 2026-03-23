@@ -1,4 +1,5 @@
 import path from "node:path";
+import os from "node:os";
 
 function envInt(key: string, fallback: number): number {
   const v = process.env[key];
@@ -36,3 +37,5 @@ export const MAX_QR_REFRESH = 3;
 export const TYPING_TICKET_TTL_MS = 24 * 3_600_000; // 24h
 export const SESSION_MAX_AGE_MS = 30 * 86_400_000; // 30 days
 export const MAX_SESSION_EXPIRY_COUNT = 5; // consecutive session expiries before warning
+export const CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c";
+export const MEDIA_TEMP_DIR = path.join(os.tmpdir(), "wechat-claude-media");
