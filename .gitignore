@@ -3,3 +3,11 @@ node_modules/
 .cursor/
 bridge.log
 bridge-*.log
+# Prevent accidental credential commits
+account.json
+sync_buf.txt
+sessions/
+*.pem
+*.key
+.env
+.env.*
