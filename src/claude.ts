@@ -8,7 +8,7 @@ import { log, logError } from "./log.js";
  */
 function runClaude(text: string, sessionId: string | null): Promise<{ result: string; code: number | null; stderr: string; sessionId?: string }> {
   return new Promise((resolve, reject) => {
-    const args = ["-p", "--output-format", "json"];
+    const args = ["-p", "--output-format", "json", "--dangerously-skip-permissions"];
     if (sessionId) {
       args.push("--resume", sessionId);
     }
