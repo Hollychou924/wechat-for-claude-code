@@ -1,6 +1,8 @@
 import {
   getUpdates,
   sendTextMessage,
+  sendImageMessage,
+  getUploadUrl,
   sendTyping,
   getConfig,
   TypingStatus,
@@ -8,11 +10,11 @@ import {
 import fs from "node:fs";
 import path from "node:path";
 import type { AccountData } from "./storage.js";
-import { loadSyncBuffer, saveSyncBuffer, clearSessionId } from "./storage.js";
+import { loadSyncBuffer, saveSyncBuffer, clearSessionId, getSessionId } from "./storage.js";
 import { parseMessage, markdownToPlainText, splitText } from "./message.js";
 import type { MediaInfo } from "./message.js";
 import { callClaude } from "./claude.js";
-import { downloadAndDecrypt, downloadPlain } from "./cdn.js";
+import { downloadAndDecrypt, downloadPlain, uploadFileToCdn } from "./cdn.js";
 import { log, logError } from "./log.js";
 import {
   LONG_POLL_TIMEOUT_MS,
@@ -86,12 +88,35 @@ const HELP_TEXT = [
   "Claude Code 微信助手 可用命令：",
   "",
   "新对话 — 清除上下文，开始全新对话",
+  "调试 — 查看当前运行状态",
   "帮助 — 显示本帮助信息",
   "",
   "直接发送文字消息即可与 Claude 对话。",
+  "支持发送图片、文件（Claude 自动识别）。",
   "支持语音消息（自动转文字）。",
   "支持引用回复。",
 ].join("\n");
+
+function buildDebugInfo(senderId: string): string {
+  const sessionId = getSessionId(senderId);
+  const contextToken = contextTokenCache.get(senderId);
+  const ticket = typingTicketCache.get(senderId);
+  const queueActive = userQueues.has(senderId);
+  const uptime = process.uptime();
+  const hours = Math.floor(uptime / 3600);
+  const mins = Math.floor((uptime % 3600) / 60);
+
+  return [
+    "-- 调试信息 --",
+    `运行时长: ${hours}h ${mins}m`,
+    `会话ID: ${sessionId ? sessionId.slice(0, 12) + "..." : "无"}`,
+    `ContextToken: ${contextToken ? "有" : "无"}`,
+    `TypingTicket: ${ticket ? "有" : "无"}`,
+    `消息队列: ${queueActive ? "处理中" : "空闲"}`,
+    `去重缓存: ${dedupCache.size} 条`,
+    `内存: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`,
+  ].join("\n");
+}
 
 function handleCommand(
   text: string,
@@ -102,6 +127,10 @@ function handleCommand(
   if (trimmed === "新对话" || trimmed === "重置" || trimmed === "reset") {
     clearSessionId(senderId);
     return { reply: "已清除对话上下文，开始全新对话。", handled: true };
+  }
+
+  if (trimmed === "调试" || trimmed === "debug" || trimmed === "状态" || trimmed === "status") {
+    return { reply: buildDebugInfo(senderId), handled: true };
   }
 
   if (trimmed === "帮助" || trimmed === "help" || trimmed === "?") {
@@ -147,7 +176,86 @@ async function downloadMedia(items: MediaInfo[]): Promise<{ paths: string[]; err
   return { paths, errors };
 }
 
-// ── Send Reply (with chunking + markdown strip) ─────────────────────────────
+// ── Image Detection in Claude Response ───────────────────────────────────────
+
+const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]);
+
+/** Match local image file paths in Claude's response */
+const LOCAL_IMAGE_RE = /(?:^|\s)(\/[^\s]+\.(?:png|jpe?g|gif|webp|bmp))(?:\s|$|[,.)。，])/gi;
+
+/** Match remote image URLs in Claude's response */
+const REMOTE_IMAGE_RE = /https?:\/\/[^\s"'<>]+\.(?:png|jpe?g|gif|webp|bmp)(?:\?[^\s"'<>]*)?/gi;
+
+/** Extract image paths/URLs from Claude's text response */
+function extractImagesFromReply(text: string): { localPaths: string[]; remoteUrls: string[] } {
+  const localPaths: string[] = [];
+  const remoteUrls: string[] = [];
+
+  let m: RegExpExecArray | null;
+  LOCAL_IMAGE_RE.lastIndex = 0;
+  while ((m = LOCAL_IMAGE_RE.exec(text)) !== null) {
+    const p = m[1];
+    if (fs.existsSync(p)) localPaths.push(p);
+  }
+
+  REMOTE_IMAGE_RE.lastIndex = 0;
+  while ((m = REMOTE_IMAGE_RE.exec(text)) !== null) {
+    remoteUrls.push(m[0]);
+  }
+
+  return { localPaths, remoteUrls };
+}
+
+/** Download a remote image URL to a temp file */
+async function downloadRemoteImage(url: string): Promise<string | null> {
+  try {
+    fs.mkdirSync(MEDIA_TEMP_DIR, { recursive: true });
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < 100) return null; // too small, probably not an image
+
+    // Determine extension from URL or content-type
+    const urlExt = path.extname(new URL(url).pathname).toLowerCase();
+    const ext = IMAGE_EXTENSIONS.has(urlExt) ? urlExt : ".png";
+    const fileName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`;
+    const filePath = path.join(MEDIA_TEMP_DIR, fileName);
+    fs.writeFileSync(filePath, buf);
+    log(`远程图片已下载: ${filePath} (${buf.length} 字节)`);
+    return filePath;
+  } catch (err) {
+    logError(`远程图片下载失败: ${url} - ${String(err)}`);
+    return null;
+  }
+}
+
+/** Upload a local image file to WeChat CDN and send it */
+async function uploadAndSendImage(
+  baseUrl: string,
+  token: string,
+  to: string,
+  imagePath: string,
+  contextToken: string,
+): Promise<boolean> {
+  try {
+    const fileBuf = fs.readFileSync(imagePath);
+    const uploaded = await uploadFileToCdn(
+      fileBuf,
+      to,
+      (params) => getUploadUrl(baseUrl, token, params),
+      CDN_BASE_URL,
+      1, // IMAGE
+    );
+    await sendImageMessage(baseUrl, token, to, uploaded, contextToken);
+    log(`图片已发送: ${imagePath}`);
+    return true;
+  } catch (err) {
+    logError(`图片上传发送失败: ${String(err)}`);
+    return false;
+  }
+}
+
+// ── Send Reply (with chunking + markdown strip + image extraction) ───────────
 
 async function sendReply(
   baseUrl: string,
@@ -156,10 +264,35 @@ async function sendReply(
   text: string,
   contextToken: string,
 ): Promise<void> {
+  // Extract images from Claude's response
+  const { localPaths, remoteUrls } = extractImagesFromReply(text);
+  const tempDownloads: string[] = [];
+
+  // Download remote images
+  for (const url of remoteUrls) {
+    const localPath = await downloadRemoteImage(url);
+    if (localPath) tempDownloads.push(localPath);
+  }
+
+  const allImages = [...localPaths, ...tempDownloads];
+
+  // Send text (strip markdown)
   const plain = markdownToPlainText(text);
-  const chunks = splitText(plain);
-  for (const chunk of chunks) {
-    await sendTextMessage(baseUrl, token, to, chunk, contextToken);
+  if (plain.trim()) {
+    const chunks = splitText(plain);
+    for (const chunk of chunks) {
+      await sendTextMessage(baseUrl, token, to, chunk, contextToken);
+    }
+  }
+
+  // Send extracted images
+  for (const imgPath of allImages) {
+    await uploadAndSendImage(baseUrl, token, to, imgPath, contextToken);
+  }
+
+  // Clean up temp downloads
+  for (const p of tempDownloads) {
+    try { fs.unlinkSync(p); } catch { /* ignore */ }
   }
 }
 

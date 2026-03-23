@@ -250,3 +250,77 @@ export async function sendTyping(
     // best effort — typing indicator is non-critical
   }
 }
+
+// ── CDN Upload URL ─────────────────────────────────────────────────────────
+
+export const UploadMediaType = { IMAGE: 1, VIDEO: 2, FILE: 3 } as const;
+
+export async function getUploadUrl(
+  baseUrl: string,
+  token: string,
+  params: {
+    filekey: string;
+    media_type: number;
+    to_user_id: string;
+    rawsize: number;
+    rawfilemd5: string;
+    filesize: number;
+    aeskey: string;
+  },
+): Promise<{ upload_param?: string }> {
+  const raw = await apiFetch({
+    baseUrl,
+    endpoint: "ilink/bot/getuploadurl",
+    body: JSON.stringify({
+      ...params,
+      no_need_thumb: true,
+      base_info: buildBaseInfo(),
+    }),
+    token,
+    timeoutMs: 15_000,
+  });
+  return JSON.parse(raw);
+}
+
+// ── Send Image Message ─────────────────────────────────────────────────────
+
+export async function sendImageMessage(
+  baseUrl: string,
+  token: string,
+  to: string,
+  uploaded: {
+    downloadEncryptedQueryParam: string;
+    aeskey: string; // hex
+    fileSizeCiphertext: number;
+  },
+  contextToken: string,
+): Promise<void> {
+  await apiFetch({
+    baseUrl,
+    endpoint: "ilink/bot/sendmessage",
+    body: JSON.stringify({
+      msg: {
+        from_user_id: "",
+        to_user_id: to,
+        client_id: generateClientId(),
+        message_type: MessageType.BOT,
+        message_state: MessageState.FINISH,
+        item_list: [{
+          type: MessageItemType.IMAGE,
+          image_item: {
+            media: {
+              encrypt_query_param: uploaded.downloadEncryptedQueryParam,
+              aes_key: Buffer.from(uploaded.aeskey, "hex").toString("base64"),
+              encrypt_type: 1,
+            },
+            mid_size: uploaded.fileSizeCiphertext,
+          },
+        }],
+        context_token: contextToken,
+      },
+      base_info: buildBaseInfo(),
+    }),
+    token,
+    timeoutMs: 15_000,
+  });
+}
