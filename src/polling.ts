@@ -203,10 +203,24 @@ async function processMessage(
       log("已发送微信回复");
     }
   } catch (err) {
-    logError(`Claude 处理失败: ${String(err)}`);
+    const errMsg = String(err);
+    logError(`Claude 处理失败: ${errMsg}`);
     await stopTyping();
+
+    // Build user-friendly error message
+    let userMsg: string;
+    if (errMsg.includes("not found") || errMsg.includes("ENOENT")) {
+      userMsg = "Claude Code 未安装或不在系统路径中，请检查服务端环境。";
+    } else if (errMsg.includes("响应超时")) {
+      userMsg = "Claude 处理超时了，可能是问题太复杂。请试试简化问题，或发「新对话」重置后重试。";
+    } else if (errMsg.includes("退出码")) {
+      userMsg = "Claude 处理出错了，请发「新对话」重置后重试。";
+    } else {
+      userMsg = "抱歉，处理消息时出错了，请稍后再试。";
+    }
+
     try {
-      await sendTextMessage(baseUrl, token, senderId, "抱歉，处理消息时出错了，请稍后再试。", contextToken);
+      await sendTextMessage(baseUrl, token, senderId, userMsg, contextToken);
     } catch { /* best effort */ }
   }
 }
