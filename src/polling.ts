@@ -16,7 +16,9 @@ import type { MediaInfo } from "./message.js";
 import { callClaude } from "./claude.js";
 import { downloadAndDecrypt, downloadPlain, uploadFileToCdn } from "./cdn.js";
 import { log, logError } from "./log.js";
+import { execFileSync } from "node:child_process";
 import {
+  CHANNEL_VERSION,
   LONG_POLL_TIMEOUT_MS,
   MAX_CONSECUTIVE_FAILURES,
   BACKOFF_DELAY_MS,
@@ -97,6 +99,19 @@ const HELP_TEXT = [
   "支持引用回复。",
 ].join("\n");
 
+let cachedClaudeVersion: string | null = null;
+
+function getClaudeVersion(): string {
+  if (cachedClaudeVersion) return cachedClaudeVersion;
+  try {
+    cachedClaudeVersion = execFileSync("claude", ["--version"], { timeout: 5_000 })
+      .toString().trim().split("\n")[0];
+  } catch {
+    cachedClaudeVersion = "未知";
+  }
+  return cachedClaudeVersion;
+}
+
 function buildDebugInfo(senderId: string): string {
   const sessionId = getSessionId(senderId);
   const contextToken = contextTokenCache.get(senderId);
@@ -108,6 +123,9 @@ function buildDebugInfo(senderId: string): string {
 
   return [
     "-- 调试信息 --",
+    `桥接版本: ${CHANNEL_VERSION}`,
+    `Claude Code: ${getClaudeVersion()}`,
+    `Bun: ${typeof Bun !== "undefined" ? Bun.version : process.version}`,
     `运行时长: ${hours}h ${mins}m`,
     `会话ID: ${sessionId ? sessionId.slice(0, 12) + "..." : "无"}`,
     `ContextToken: ${contextToken ? "有" : "无"}`,
@@ -115,6 +133,7 @@ function buildDebugInfo(senderId: string): string {
     `消息队列: ${queueActive ? "处理中" : "空闲"}`,
     `去重缓存: ${dedupCache.size} 条`,
     `内存: ${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)}MB`,
+    `系统: ${process.platform} ${process.arch}`,
   ].join("\n");
 }
 
