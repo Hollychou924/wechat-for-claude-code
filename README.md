@@ -1,10 +1,14 @@
 # WeChat for Claude Code
 
 用微信控制你电脑上的 Claude Code。
+![7ee6f370306019506e351bddd2cce596](https://github.com/user-attachments/assets/e9eccf28-475b-42a3-8ea0-9d41f2642283)
+
 
 不需要 API Key，不需要部署服务器，不需要任何额外账号。只要你电脑上装了 Claude Code 并登录了 claude.ai，就可以在微信里随时随地跟 Claude 对话——和在终端里用 Claude Code 一样，只是入口变成了微信。
 
 **支持 macOS / Windows / Linux。**
+![img_v3_02102_074075b6-c52b-4ec8-99e1-9c170731d98g](https://github.com/user-attachments/assets/8362a63d-b437-4e98-afb8-6767d996b849)
+![img_v3_02102_b11f5ae6-65fc-4933-a77a-dcc77330f87g](https://github.com/user-attachments/assets/256c0eb8-0720-4dab-bf2f-4c7da6fdc479)
 
 
 ## 它能做什么
